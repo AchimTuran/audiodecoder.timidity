@@ -18,150 +18,70 @@
  *
  */
 
-#include "libXBMC_addon.h"
-
-ADDON::CHelper_libXBMC_addon *XBMC           = NULL;
-
-extern "C" {
-#include "timidity_codec.h"
-#include "kodi_audiodec_dll.h"
-#include "AEChannelData.h"
+#include <kodi/audiodecoder/AudioDecoder.h>
+#include <kodi/General.h>
+#include <kodi/VFS.h>
 
 #include <unistd.h>
 
-char soundfont[1024] = {0};
-
-//-- Create -------------------------------------------------------------------
-// Called on load. Addon should fully initalize or return error status
-//-----------------------------------------------------------------------------
-ADDON_STATUS ADDON_Create(void* hdl, void* props)
-{
-  if (!XBMC)
-    XBMC = new ADDON::CHelper_libXBMC_addon;
-
-  if (!XBMC->RegisterMe(hdl))
-  {
-    delete XBMC, XBMC=NULL;
-    return ADDON_STATUS_PERMANENT_FAILURE;
-  }
-
-  return ADDON_STATUS_NEED_SETTINGS;
+extern "C" {
+#include "timidity_codec.h"
 }
 
-//-- Stop ---------------------------------------------------------------------
-// This dll must cease all runtime activities
-// !!! Add-on master function !!!
-//-----------------------------------------------------------------------------
-void ADDON_Stop()
+class CTimidityCodecAddon
+  : public kodi::addon::CInstanceAudioDecoder
 {
-}
+public:
+  CTimidityCodecAddon(KODI_HANDLE instance);
+  virtual ~CTimidityCodecAddon();
 
-//-- Destroy ------------------------------------------------------------------
-// Do everything before unload of this add-on
-// !!! Add-on master function !!!
-//-----------------------------------------------------------------------------
-void ADDON_Destroy()
-{
-  XBMC=NULL;
-}
+  virtual bool Init(std::string file, unsigned int filecache, AUDIODEC_STREAM_INFO& streamInfo);
+  virtual int64_t Seek(int64_t time);
+  virtual int ReadPCM(uint8_t* buffer, int size, int& actualsize);
 
-//-- HasSettings --------------------------------------------------------------
-// Returns true if this add-on use settings
-// !!! Add-on master function !!!
-//-----------------------------------------------------------------------------
-bool ADDON_HasSettings()
-{
-  return true;
-}
-
-//-- GetStatus ---------------------------------------------------------------
-// Returns the current Status of this visualisation
-// !!! Add-on master function !!!
-//-----------------------------------------------------------------------------
-ADDON_STATUS ADDON_GetStatus()
-{
-  return ADDON_STATUS_OK;
-}
-
-//-- GetSettings --------------------------------------------------------------
-// Return the settings for XBMC to display
-// !!! Add-on master function !!!
-//-----------------------------------------------------------------------------
-unsigned int ADDON_GetSettings(ADDON_StructSetting ***sSet)
-{
-  return 0;
-}
-
-//-- FreeSettings --------------------------------------------------------------
-// Free the settings struct passed from XBMC
-// !!! Add-on master function !!!
-//-----------------------------------------------------------------------------
-
-void ADDON_FreeSettings()
-{
-}
-
-//-- SetSetting ---------------------------------------------------------------
-// Set a specific Setting value (called from XBMC)
-// !!! Add-on master function !!!
-//-----------------------------------------------------------------------------
-ADDON_STATUS ADDON_SetSetting(const char *strSetting, const void* value)
-{
-  if (strcmp(strSetting,"soundfont") == 0)
-    strcpy(soundfont, (const char*)value);
-
-  return ADDON_STATUS_OK;
-}
-
-//-- Announce -----------------------------------------------------------------
-// Receive announcements from XBMC
-// !!! Add-on master function !!!
-//-----------------------------------------------------------------------------
-void ADDON_Announce(const char *flag, const char *sender, const char *message, const void *data)
-{
-}
-
-struct TimidityContext
-{
-  MidiSong* song;
-  size_t pos;
+private:
+  MidiSong* m_song;
+  size_t m_pos;
 };
 
-#define SET_IF(ptr, value) \
-{ \
-  if ((ptr)) \
-   *(ptr) = (value); \
+CTimidityCodecAddon::CTimidityCodecAddon(KODI_HANDLE instance)
+  : CInstanceAudioDecoder(instance),
+    m_song(nullptr)
+{
 }
 
-void* Init(const char* strFile, unsigned int filecache, int* channels,
-           int* samplerate, int* bitspersample, int64_t* totaltime,
-           int* bitrate, AEDataFormat* format, const AEChannel** channelinfo)
+CTimidityCodecAddon::~CTimidityCodecAddon()
 {
-  if (strlen(soundfont) == 0)
-    return NULL;
+  if (m_song)
+    Timidity_FreeSong(m_song);
+}
+
+bool CTimidityCodecAddon::Init(std::string filename, unsigned int filecache, AUDIODEC_STREAM_INFO& streamInfo)
+{
+  std::string soundfont;
+  kodi::GetSettingString("soundfont", soundfont);
+  if (soundfont.empty())
+    kodi::OpenSettings();
 
   int res;
-  if (strstr(soundfont,".sf2"))
-    res = Timidity_Init(48000, 16, 2, soundfont, NULL); // real soundfont
+  if (soundfont == "sf2")
+    res = Timidity_Init(48000, 16, 2, soundfont.c_str(), NULL); // real soundfont
   else
-    res = Timidity_Init(48000, 16, 2, NULL, soundfont); // config file
+    res = Timidity_Init(48000, 16, 2, NULL, soundfont.c_str()); // config file
 
   if (res != 0)
-    return NULL;
+    return false;
 
-  void* file = XBMC->OpenFile(strFile, 0);
-  if (!file)
-    return NULL;
+  kodi::vfs::CFile file;
+  if (!file.OpenFile(filename))
+    return false;
 
-  int len = XBMC->GetFileLength(file);
+  int len = file.GetLength();
   uint8_t* data = new uint8_t[len];
   if (!data)
-  {
-    XBMC->CloseFile(file);
-    return NULL;
-  }
-  XBMC->ReadFile(file, data, len);
-  XBMC->CloseFile(file);
+    return false;
+
+  file.Read(data, len);
 
   const char* tempfile = tmpnam(NULL);
 
@@ -169,87 +89,60 @@ void* Init(const char* strFile, unsigned int filecache, int* channels,
   if (!f)
   {
     delete[] data;
-    return NULL;
+    return false;
   }
   fwrite(data, 1, len, f);
   fclose(f);
   delete[] data;
 
-  TimidityContext* result = new TimidityContext;
-  if (!result)
-    return NULL;
-
-  result->song = Timidity_LoadSong((char*)tempfile);
+  m_song = Timidity_LoadSong((char*)tempfile);
   unlink(tempfile);
-  if (!result->song)
-  {
-    delete result;
-    return NULL;
-  }
+  if (!m_song)
+    return false;
 
-  result->pos = 0;
+  m_pos = 0;
 
-  SET_IF(channels, 2)
-  SET_IF(samplerate, 48000)
-  SET_IF(bitspersample, 16)
-  SET_IF(totaltime, Timidity_GetLength(result->song))
-  SET_IF(format, AE_FMT_S16NE)
-   static enum AEChannel map[3] = {
-    AE_CH_FL, AE_CH_FR, AE_CH_NULL
-  };
-  SET_IF(channelinfo, map)
-  SET_IF(bitrate, 0)
-
-  return result;
+  streamInfo.channels = 2;
+  streamInfo.samplerate = 48000;
+  streamInfo.bitspersample = 16;
+  streamInfo.totaltime  = Timidity_GetLength(m_song);
+  streamInfo.format = AUDIO_FMT_S16NE;
+  streamInfo.channellist = { AUDIO_CH_FL, AUDIO_CH_FR, AUDIO_CH_NULL };
+  streamInfo.bitrate = 0;
+  return true;
 }
 
-int ReadPCM(void* context, uint8_t* pBuffer, int size, int *actualsize)
+int64_t CTimidityCodecAddon::Seek(int64_t time)
 {
-  if (!context || !pBuffer || !actualsize)
-    return 1;
+  return Timidity_Seek(m_song, time);
+}
 
-  TimidityContext* ctx = (TimidityContext*)context;
-
-  if (ctx->pos > Timidity_GetLength(ctx->song)/1000*48000*4)
+int CTimidityCodecAddon::ReadPCM(uint8_t* buffer, int size, int& actualsize)
+{
+  if (m_pos > Timidity_GetLength(m_song)/1000*48000*4)
     return -1;
 
-  *actualsize = Timidity_FillBuffer(ctx->song, pBuffer, size);
-  ctx->pos += *actualsize;
+  actualsize = Timidity_FillBuffer(m_song, buffer, size);
+  m_pos += actualsize;
 
   return 0;
 }
 
-int64_t Seek(void* context, int64_t time)
+class CMyAddon : public ::kodi::addon::CAddonBase
 {
-  if (!context)
-    return 0;
+public:
+  CMyAddon() { }
+  virtual ADDON_STATUS CreateInstance(int instanceType,
+                                      std::string instanceID,
+                                      KODI_HANDLE instance,
+                                      KODI_HANDLE& addonInstance) override;
+};
 
-  TimidityContext* ctx = (TimidityContext*)context;
-
-  return Timidity_Seek(ctx->song, time);
-}
-
-bool DeInit(void* context)
+ADDON_STATUS CMyAddon::CreateInstance(int instanceType, std::string instanceID, KODI_HANDLE instance, KODI_HANDLE& addonInstance)
 {
-  if (!context)
-    return true;
-
-  TimidityContext* ctx = (TimidityContext*)context;
-
-  Timidity_FreeSong(ctx->song);
-  delete ctx;
-
-  return true;
+  kodi::Log(LOG_NOTICE, "Creating Timidity Audio Decoder");
+  addonInstance = new CTimidityCodecAddon(instance);
+  return ADDON_STATUS_OK;
 }
 
-bool ReadTag(const char* strFile, char* title, char* artist,
-             int* length)
-{
-  return true;
-}
-
-int TrackCount(const char* strFile)
-{
-  return 1;
-}
-}
+ADDONCREATOR(CMyAddon);

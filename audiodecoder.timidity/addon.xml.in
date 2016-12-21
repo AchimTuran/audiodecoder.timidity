@@ -5,7 +5,7 @@
   name="Timidity Audio Decoder"
   provider-name="spiff">
   <requires>
-    <import addon="kodi.audiodecoder" version="1.0.0"/>
+    <import addon="kodi.audiodecoder" version="1.0.1"/>
   </requires>
   <extension
     point="kodi.audiodecoder"

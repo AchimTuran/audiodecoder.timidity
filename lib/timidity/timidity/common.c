@@ -29,7 +29,11 @@
 #include <stdarg.h>
 #include <time.h>
 #ifdef HAVE_SYS_TIME_H
+#if defined(TARGET_WINDOWS)
+#include <time.h>
+#else
 #include <sys/time.h>
+#endif
 #endif /* HAVE_SYS_TIME_H */
 #ifdef HAVE_SYS_TYPES_H
 #include <sys/types.h>
@@ -121,7 +125,7 @@ tmdy_mkstemp(char *tmpl)
   }
 
   /* Get some more or less random data.  */
-#if HAVE_GETTIMEOFDAY
+#if defined(HAVE_GETTIMEOFDAY) && !defined(TARGET_WINDOWS)
   {
     struct timeval tv;
     gettimeofday(&tv, NULL);

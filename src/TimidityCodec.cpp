@@ -25,7 +25,11 @@
 
 #include <p8-platform/util/StringUtils.h>
 
+#if !defined(TARGET_WINDOWS)
 #include <unistd.h>
+#else
+#include <io.h>
+#endif
 
 extern "C" {
 #include "timidity_codec.h"

@@ -34,6 +34,24 @@
 #include <stdlib.h>
 #include <stdarg.h>
 
+#if defined(TARGET_WINDOWS)
+#include <windows.h>
+// source code from here: https://stackoverflow.com/a/5801863
+static void usleep(int waitTime)
+{
+  __int64 time1 = 0, time2 = 0, freq = 0;
+
+  QueryPerformanceCounter((LARGE_INTEGER *)&time1);
+  QueryPerformanceFrequency((LARGE_INTEGER *)&freq);
+
+  do
+  {
+    QueryPerformanceCounter((LARGE_INTEGER *)&time2);
+  } while ((time2 - time1) < waitTime);
+}
+#undef RC_NONE
+#endif
+
 #ifndef NO_STRING_H
 #include <string.h>
 #else
@@ -9154,7 +9172,7 @@ int Timidity_FillBuffer( MidiSong* song, void *buf, unsigned int size )
 		// In case there is still data in the stored_buffer, move it and return.
 		if ( song->stored_size > 0 )
 		{
-			memmove( song->stored_buffer, song->stored_buffer + copylength, song->stored_size );
+			memmove( song->stored_buffer, (char*)song->stored_buffer + copylength, song->stored_size );
 			song->output_offset = copylength;
 			
 			// and the while() loop will throw us away

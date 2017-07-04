@@ -23,7 +23,7 @@
 #include "config.h"
 #endif /* HAVE_CONFIG_H */
 
-#if defined(HAVE_GETTIMEOFDAY)
+#if defined(HAVE_GETTIMEOFDAY) && !defined(TARGET_WINDOWS)
 #include <sys/types.h>
 #include <sys/time.h>
 #include <time.h>

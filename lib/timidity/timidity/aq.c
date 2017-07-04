@@ -85,6 +85,23 @@ static int aq_fill_one(void);
 static void aq_wait_ticks(void);
 static int32 estimate_queue_size(void);
 
+#if defined(TARGET_WINDOWS)
+#include <windows.h>
+// source code from here: https://stackoverflow.com/a/5801863
+static void usleep(int waitTime)
+{
+  __int64 time1 = 0, time2 = 0, freq = 0;
+ 
+  QueryPerformanceCounter((LARGE_INTEGER *) &time1);
+  QueryPerformanceFrequency((LARGE_INTEGER *)&freq);
+ 
+  do
+  {
+    QueryPerformanceCounter((LARGE_INTEGER *) &time2);
+  } while((time2-time1) < waitTime);
+}
+#endif
+
 /* effect.c */
 extern void init_effect(void);
 extern int do_effect(int32* buf, int32 count);
@@ -612,8 +629,10 @@ int aq_flush(int discard)
 	if(t >= timeout_expect - 0.1)
 	  break;
 
-	if(!more_trace)
-	  usleep((unsigned long)((timeout_expect - t) * 1000000));
+  if (!more_trace)
+  {
+  usleep((unsigned long)((timeout_expect - t) * 1000000));
+  }
 	else
 	  aq_wait_ticks();
     }

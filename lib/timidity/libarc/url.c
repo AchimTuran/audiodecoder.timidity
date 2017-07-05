@@ -411,7 +411,9 @@ void url_close(URL url)
 }
 
 #if defined(TILD_SCHEME_ENABLE)
+#if !defined(TARGET_WINDOWS)
 #include <pwd.h>
+#endif
 char *url_expand_home_dir(char *fname)
 {
     static char path[BUFSIZ];
@@ -428,20 +430,22 @@ char *url_expand_home_dir(char *fname)
 	    if((dir = getenv("home")) == NULL)
 		return fname;
     }
+#if !defined(TARGET_WINDOWS)
     else /* ~user/... */
     {
-	struct passwd *pw;
-	int i;
+      struct passwd *pw;
+      int i;
 
-	fname++;
-	for(i = 0; i < sizeof(path) - 1 && fname[i] && !IS_PATH_SEP(fname[i]); i++)
-	    path[i] = fname[i];
-	path[i] = '\0';
-	if((pw = getpwnam(path)) == NULL)
-	    return fname - 1;
-	fname += i;
-	dir = pw->pw_dir;
+      fname++;
+      for(i = 0; i < sizeof(path) - 1 && fname[i] && !IS_PATH_SEP(fname[i]); i++)
+        path[i] = fname[i];
+      path[i] = '\0';
+      if((pw = getpwnam(path)) == NULL)
+        return fname - 1;
+      fname += i;
+      dir = pw->pw_dir;
     }
+#endif
     dirlen = strlen(dir);
     strncpy(path, dir, sizeof(path) - 1);
     if(sizeof(path) > dirlen)
